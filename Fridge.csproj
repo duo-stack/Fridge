@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <RuntimeFrameworkVersion>10.0.8</RuntimeFrameworkVersion>
+    <TargetLatestRuntimePatch>false</TargetLatestRuntimePatch>
+    <AssemblyName>Fridge</AssemblyName>
+    <RootNamespace>Fridge</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SSH.NET" Version="2025.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\deploy-frps.sh" LogicalName="Fridge.Assets.deploy-frps.sh" />
+    <EmbeddedResource Include="Assets\Configure-Rdp.ps1" LogicalName="Fridge.Assets.Configure-Rdp.ps1" />
+    <EmbeddedResource Include="Assets\Install-FrpcStartup.ps1" LogicalName="Fridge.Assets.Install-FrpcStartup.ps1" />
+    <EmbeddedResource Include="Assets\frpc.exe" LogicalName="Fridge.Assets.frpc.exe" Condition="Exists('Assets\frpc.exe')" />
+    <EmbeddedResource Include="Assets\frps-linux-amd64.tar.gz" LogicalName="Fridge.Assets.frps-linux-amd64.tar.gz" Condition="Exists('Assets\frps-linux-amd64.tar.gz')" />
+    <EmbeddedResource Include="Assets\frps-linux-arm64.tar.gz" LogicalName="Fridge.Assets.frps-linux-arm64.tar.gz" Condition="Exists('Assets\frps-linux-arm64.tar.gz')" />
+  </ItemGroup>
+
+</Project>
