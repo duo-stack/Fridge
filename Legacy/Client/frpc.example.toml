@@ -1,0 +1,19 @@
+serverAddr = "YOUR_SERVER_PUBLIC_IP_OR_DOMAIN"
+serverPort = 7000
+
+[auth]
+token = "CHANGE_TO_THE_SAME_TOKEN_AS_FRPS"
+
+[[proxies]]
+name = "rdp-tcp"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 3389
+remotePort = 3389
+
+[[proxies]]
+name = "rdp-udp"
+type = "udp"
+localIP = "127.0.0.1"
+localPort = 3389
+remotePort = 3389
