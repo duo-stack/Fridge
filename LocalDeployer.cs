@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Security.Principal;
 using System.Text;
 
 namespace Fridge;
@@ -22,9 +23,11 @@ internal sealed class LocalDeployer
             throw new InvalidOperationException("当前构建未包含 frpc.exe，请重新执行资源打包。");
         }
 
-        Directory.CreateDirectory(InstallDirectory);
         var frpcPath = Path.Combine(InstallDirectory, "frpc.exe");
         var configPath = Path.Combine(InstallDirectory, "frpc.toml");
+        await CheckLocalEnvironmentAsync(frpcPath, configPath, cancellationToken);
+
+        Directory.CreateDirectory(InstallDirectory);
         await StopManagedFrpcAsync(frpcPath, cancellationToken);
         var backupPath = File.Exists(configPath)
             ? configPath + $".backup.{DateTime.Now:yyyyMMdd-HHmmss}"
@@ -95,14 +98,22 @@ internal sealed class LocalDeployer
             await tcp.ConnectAsync("127.0.0.1", 3389, cancellationToken);
 
             var processes = Process.GetProcessesByName("frpc");
-            if (processes.Length == 0)
-            {
-                throw new InvalidOperationException("FRPC 开机任务已经创建，但没有检测到 frpc.exe 进程。");
-            }
-
+            var managedProcessFound = false;
             foreach (var process in processes)
             {
-                process.Dispose();
+                try
+                {
+                    managedProcessFound |= PathsEqual(TryGetProcessPath(process), frpcPath);
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            if (!managedProcessFound)
+            {
+                throw new InvalidOperationException("FRPC 开机任务已经创建，但没有检测到 frpc.exe 进程。");
             }
 
             _log($"本机部署完成，远程桌面目标：{settings.RdpTarget}");
@@ -120,6 +131,222 @@ internal sealed class LocalDeployer
     {
         var arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\" {scriptArguments}";
         await RunProcessAsync("powershell.exe", arguments, Path.GetDirectoryName(scriptPath)!, cancellationToken);
+    }
+
+    private async Task CheckLocalEnvironmentAsync(
+        string frpcPath,
+        string configPath,
+        CancellationToken cancellationToken)
+    {
+        if (!IsAdministrator())
+        {
+            throw new InvalidOperationException("本机环境检查未通过：请以管理员身份运行 Fridge。");
+        }
+
+        _log("正在检查本机 FRPC 环境...");
+        var conflicts = new List<string>();
+        var managedProcessFound = false;
+
+        foreach (var process in Process.GetProcessesByName("frpc"))
+        {
+            try
+            {
+                var processPath = TryGetProcessPath(process);
+                if (PathsEqual(processPath, frpcPath))
+                {
+                    managedProcessFound = true;
+                }
+                else
+                {
+                    conflicts.Add($"检测到正在运行的 frpc.exe（PID {process.Id}，路径：{processPath ?? "无法读取"}）。");
+                }
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        var taskOutput = await RunPowerShellCaptureAsync(BuildScheduledFrpcTaskCheckScript(), cancellationToken);
+        foreach (var line in taskOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var fields = line.Split('|', 3);
+            if (fields.Length == 3 && string.Equals(fields[0], "TASK", StringComparison.Ordinal))
+            {
+                var taskName = fields[1];
+                var taskPath = fields[2];
+                if (string.Equals(taskName, "Fridge FRP Client", StringComparison.OrdinalIgnoreCase) &&
+                    PathsEqual(taskPath, frpcPath))
+                {
+                    continue;
+                }
+
+                conflicts.Add($"检测到 FRPC 计划任务：{taskName}（路径：{taskPath}）。");
+            }
+            else if (fields.Length == 3 && string.Equals(fields[0], "SERVICE", StringComparison.Ordinal))
+            {
+                conflicts.Add($"检测到 FRPC Windows 服务：{fields[1]}（启动命令：{fields[2]}）。");
+            }
+            else if (fields.Length == 2 && string.Equals(fields[0], "PATH", StringComparison.Ordinal))
+            {
+                if (!PathsEqual(fields[1], frpcPath))
+                {
+                    conflicts.Add($"系统 PATH 中已存在其他 frpc.exe：{fields[1]}。");
+                }
+            }
+        }
+
+        foreach (var knownPath in new[]
+                 {
+                     @"C:\Program Files\FRP\frpc.exe",
+                     @"C:\Program Files\frp\frpc.exe",
+                     @"C:\FRP\frpc.exe"
+                 })
+        {
+            if (File.Exists(knownPath) && !PathsEqual(knownPath, frpcPath))
+            {
+                conflicts.Add($"检测到其他 FRPC 安装文件：{knownPath}。");
+            }
+        }
+
+        if (conflicts.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "本机环境检查未通过，检测到已有非 Fridge 的 FRPC 部署或运行。请先停止/卸载现有 FRPC、计划任务或旧安装，再重新部署。\n" +
+                string.Join("\n", conflicts.Distinct(StringComparer.OrdinalIgnoreCase)));
+        }
+
+        if (managedProcessFound || File.Exists(frpcPath) || File.Exists(configPath))
+        {
+            _log("检测到已有 Fridge FRPC 文件或进程，将先停止旧任务并备份配置后更新。");
+        }
+        else
+        {
+            _log("本机环境检查通过：未发现已有 FRPC 进程、计划任务或冲突安装。");
+        }
+    }
+
+    private static string BuildScheduledFrpcTaskCheckScript()
+    {
+        return """
+            $ErrorActionPreference = 'SilentlyContinue'
+            $ProgressPreference = 'SilentlyContinue'
+            if ($null -ne (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+                try {
+                    Get-ScheduledTask | ForEach-Object {
+                        $task = $_
+                        foreach ($action in @($task.Actions)) {
+                            $execute = [string]$action.Execute
+                            if ($execute -match '(?i)(^|[\\/])frpc\.exe$') {
+                                'TASK|{0}|{1}' -f $task.TaskName, $execute
+                            }
+                        }
+                    }
+                }
+                catch {
+                    # A restricted host may not expose scheduled-task metadata.
+                }
+            }
+            $command = Get-Command frpc.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace($command.Source)) {
+                'PATH|{0}' -f $command.Source
+            }
+            if ($null -ne (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
+                try {
+                    Get-CimInstance Win32_Service | ForEach-Object {
+                        $pathName = [string]$_.PathName
+                        if ($pathName -match '(?i)frpc\.exe') {
+                            'SERVICE|{0}|{1}' -f $_.Name, $pathName
+                        }
+                    }
+                }
+                catch {
+                    # A restricted host may not expose Windows service metadata.
+                }
+            }
+            exit 0
+            """;
+    }
+
+    private static bool IsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        return principal.IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    private static string? TryGetProcessPath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool PathsEqual(string? left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left)) return false;
+        try
+        {
+            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static async Task<string> RunPowerShellCaptureAsync(string script, CancellationToken cancellationToken)
+    {
+        var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encodedCommand}",
+                WorkingDirectory = Environment.SystemDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            }
+        };
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("无法启动：powershell.exe");
+        }
+
+        using var registration = cancellationToken.Register(() =>
+        {
+            try
+            {
+                if (!process.HasExited) process.Kill(true);
+            }
+            catch
+            {
+                // The process may have completed between the checks.
+            }
+        });
+
+        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var output = await outputTask;
+        var error = await errorTask;
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"本机环境检查命令失败：{error.Trim()}");
+        }
+
+        return output;
     }
 
     private async Task StopManagedFrpcAsync(string frpcPath, CancellationToken cancellationToken)

@@ -3,13 +3,17 @@
 Fridge 是一个便携的 FRP + Windows RDP 图形化部署工具：
 
 - 通过 SSH 将内嵌的 FRPS 部署到 Linux 服务器。
-- 在当前 Windows 电脑释放 FRPC、配置 RDP 并注册开机任务。不包含安装、激活 RDP 功能。
+- 在当前 Windows 电脑释放 FRPC、配置 RDP 并注册带故障自愈的开机任务。不包含安装、激活 RDP 功能。
 
 ## 使用
 
 最终用户只需要复制 `publish/Fridge.exe`。
 
 部署本机被控端时，请以管理员身份运行。工具不会自动修改云厂商安全组，部署完成后仍需按提示放行 FRPS TCP 端口和 RDP TCP/UDP 端口。
+
+每次部署前都会检查服务器和本机是否已有 FRP 服务、进程、计划任务、安装文件或端口占用。已有 Fridge 部署可以更新，发现其他 FRP 实例或无法确认端口状态时会在写入配置前中止。
+
+FRPC 开机任务会等待 30 秒再启动，避开 DHCP 和网络初始化阶段；后台 watchdog 会记录 `frpc-watchdog.log`，并在 FRPC 退出后每 15 秒重试。日志达到 5 MB 时只保留一份轮换日志。
 
 ## 构建
 
