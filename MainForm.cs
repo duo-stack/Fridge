@@ -337,6 +337,7 @@ internal sealed class MainForm : Form
         _log.ForeColor = Color.FromArgb(43, 52, 61);
         _log.Font = new Font("Cascadia Mono", 9F);
         _log.ReadOnly = true;
+        _log.TabStop = false;
         _log.DetectUrls = false;
         _log.WordWrap = true;
         _log.Margin = Padding.Empty;
@@ -724,8 +725,13 @@ internal sealed class MainForm : Form
 
     private void HandleGlobalPointerDown(IntPtr targetHandle)
     {
-        var activeHost = _fieldHosts.Values.FirstOrDefault(host => host.ContainsFocus);
-        if (activeHost is null || ClickOutsideFocusFilter.IsHandleInside(activeHost, targetHandle))
+        Control? focusedRegion = _fieldHosts.Values.FirstOrDefault(host => host.ContainsFocus);
+        if (focusedRegion is null && _log.ContainsFocus)
+        {
+            focusedRegion = _log;
+        }
+
+        if (focusedRegion is null || ClickOutsideFocusFilter.IsHandleInside(focusedRegion, targetHandle))
         {
             return;
         }
@@ -735,14 +741,7 @@ internal sealed class MainForm : Form
 
     private void ClearActiveFocus()
     {
-        if (_log.CanFocus)
-        {
-            _log.Focus();
-        }
-        else
-        {
-            ActiveControl = null;
-        }
+        ActiveControl = null;
     }
 
     private void ShowError(string message)
