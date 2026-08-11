@@ -83,7 +83,8 @@ internal sealed class ServerDeployer
         if (environment.Conflicts.Count > 0)
         {
             throw new InvalidOperationException(
-                "服务器环境检查未通过，检测到已有非 Fridge 的 FRPS 部署或端口冲突。请先停止/卸载现有 FRPS，并确认目标端口未被占用。\n" +
+                "服务器环境检查未通过，检测到已有非 Fridge 的 FRPS 部署或端口冲突。\n" +
+                "请先停止/卸载现有 FRPS，并确认目标端口未被占用。\n" +
                 string.Join("\n", environment.Conflicts.Distinct(StringComparer.OrdinalIgnoreCase)));
         }
 
