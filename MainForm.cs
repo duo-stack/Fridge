@@ -31,7 +31,6 @@ internal sealed class MainForm : Form
     private readonly Button _deployServerButton;
     private readonly Button _deployLocalButton;
     private readonly Button _cancelButton;
-    private readonly Button _copyTargetButton;
     private readonly ClickOutsideFocusFilter _clickOutsideFocusFilter;
     private CancellationTokenSource? _operationCancellation;
     private bool _focusValidationEnabled;
@@ -58,7 +57,6 @@ internal sealed class MainForm : Form
         _deployServerButton = CreateButton("部署服务器", Primary, PrimaryHover);
         _deployLocalButton = CreateButton("部署本机被控端", Secondary, Color.FromArgb(37, 53, 67));
         _cancelButton = CreateButton("取消当前操作", Color.FromArgb(235, 238, 241), Color.FromArgb(222, 227, 231), TextPrimary);
-        _copyTargetButton = CreateButton("复制连接地址", Color.FromArgb(235, 238, 241), Color.FromArgb(222, 227, 231), TextPrimary);
         _cancelButton.Enabled = false;
 
         BuildLayout();
@@ -353,25 +351,22 @@ internal sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 4,
+            ColumnCount = 3,
             RowCount = 1,
             BackColor = WindowBackground,
             Padding = new Padding(0, 10, 0, 0),
             Margin = Padding.Empty
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 10));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 134));
         _status.Text = "就绪";
         _status.Dock = DockStyle.Fill;
         _status.ForeColor = TextMuted;
         _status.TextAlign = ContentAlignment.MiddleLeft;
-        _copyTargetButton.Dock = DockStyle.Fill;
         _cancelButton.Dock = DockStyle.Fill;
         layout.Controls.Add(_status, 0, 0);
-        layout.Controls.Add(_copyTargetButton, 1, 0);
-        layout.Controls.Add(_cancelButton, 3, 0);
+        layout.Controls.Add(_cancelButton, 2, 0);
         return layout;
     }
 
@@ -386,20 +381,6 @@ internal sealed class MainForm : Form
             false,
             token => new LocalDeployer(AppendLog).DeployAsync(ReadSettings(), token));
         _cancelButton.Click += (_, _) => _operationCancellation?.Cancel();
-        _copyTargetButton.Click += (_, _) =>
-        {
-            try
-            {
-                var settings = ReadSettings();
-                Clipboard.SetText(settings.RdpTarget);
-                _status.Text = $"已复制：{settings.RdpTarget}";
-                BeginInvoke(ClearActiveFocus);
-            }
-            catch (Exception exception)
-            {
-                ShowError(exception.Message);
-            }
-        };
 
         _sshPort.TextChanged += (_, _) => ValidatePortFieldsWhenNeeded();
         _frpsPort.TextChanged += (_, _) => ValidatePortFieldsWhenNeeded();
@@ -483,7 +464,6 @@ internal sealed class MainForm : Form
         _deployServerButton.Enabled = !busy;
         _deployLocalButton.Enabled = !busy;
         _cancelButton.Enabled = busy;
-        _copyTargetButton.Enabled = !busy;
         _status.Text = text;
         _status.ForeColor = busy ? Secondary : TextMuted;
         UseWaitCursor = busy;
