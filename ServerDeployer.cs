@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -106,7 +107,12 @@ internal sealed class ServerDeployer
 
             await using (var script = EmbeddedFiles.Open("deploy-frps.sh"))
             {
-                await Task.Run(() => sftp.UploadFile(script, $"{remoteDirectory}/deploy-frps.sh", true), cancellationToken);
+                using var reader = new StreamReader(script, Encoding.UTF8, true, leaveOpen: true);
+                var normalizedScript = (await reader.ReadToEndAsync(cancellationToken)).ReplaceLineEndings("\n");
+                await using var normalizedStream = new MemoryStream(Encoding.UTF8.GetBytes(normalizedScript));
+                await Task.Run(
+                    () => sftp.UploadFile(normalizedStream, $"{remoteDirectory}/deploy-frps.sh", true),
+                    cancellationToken);
             }
 
             await using (var archive = EmbeddedFiles.Open(archiveResource))
@@ -316,7 +322,7 @@ internal sealed class ServerDeployer
 
     private static async Task<string> ExecuteAsync(SshClient client, string commandText, CancellationToken cancellationToken)
     {
-        using var command = client.CreateCommand(commandText);
+        using var command = client.CreateCommand(commandText.ReplaceLineEndings("\n"));
         var result = await Task.Run(command.Execute, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (command.ExitStatus != 0)
