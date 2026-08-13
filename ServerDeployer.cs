@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -82,7 +83,8 @@ internal sealed class ServerDeployer
         if (environment.Conflicts.Count > 0)
         {
             throw new InvalidOperationException(
-                "服务器环境检查未通过，检测到已有非 Fridge 的 FRPS 部署或端口冲突。请先停止/卸载现有 FRPS，并确认目标端口未被占用。\n" +
+                "服务器环境检查未通过，检测到已有非 Fridge 的 FRPS 部署或端口冲突。\n" +
+                "请先停止/卸载现有 FRPS，并确认目标端口未被占用。\n" +
                 string.Join("\n", environment.Conflicts.Distinct(StringComparer.OrdinalIgnoreCase)));
         }
 
@@ -106,7 +108,12 @@ internal sealed class ServerDeployer
 
             await using (var script = EmbeddedFiles.Open("deploy-frps.sh"))
             {
-                await Task.Run(() => sftp.UploadFile(script, $"{remoteDirectory}/deploy-frps.sh", true), cancellationToken);
+                using var reader = new StreamReader(script, Encoding.UTF8, true, leaveOpen: true);
+                var normalizedScript = (await reader.ReadToEndAsync(cancellationToken)).ReplaceLineEndings("\n");
+                await using var normalizedStream = new MemoryStream(Encoding.UTF8.GetBytes(normalizedScript));
+                await Task.Run(
+                    () => sftp.UploadFile(normalizedStream, $"{remoteDirectory}/deploy-frps.sh", true),
+                    cancellationToken);
             }
 
             await using (var archive = EmbeddedFiles.Open(archiveResource))
@@ -316,7 +323,7 @@ internal sealed class ServerDeployer
 
     private static async Task<string> ExecuteAsync(SshClient client, string commandText, CancellationToken cancellationToken)
     {
-        using var command = client.CreateCommand(commandText);
+        using var command = client.CreateCommand(commandText.ReplaceLineEndings("\n"));
         var result = await Task.Run(command.Execute, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (command.ExitStatus != 0)
