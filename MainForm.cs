@@ -726,7 +726,10 @@ internal sealed class MainForm : Form
 
     private void ShowError(string message)
     {
-        MessageBox.Show(this, message, "Fridge", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        var lines = message.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var summary = string.Join(Environment.NewLine, lines.Take(2));
+        MessageBox.Show(this, summary, "Fridge", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
     private static void AddField(TableLayoutPanel layout, string labelText, Control control, int row, int column)

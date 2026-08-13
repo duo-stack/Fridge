@@ -212,7 +212,8 @@ internal sealed class LocalDeployer
         if (conflicts.Count > 0)
         {
             throw new InvalidOperationException(
-                "本机环境检查未通过，检测到已有非 Fridge 的 FRPC 部署或运行。请先停止/卸载现有 FRPC、计划任务或旧安装，再重新部署。\n" +
+                "本机环境检查未通过，检测到已有非 Fridge 的 FRPC 部署或运行。\n" +
+                "请先停止/卸载现有 FRPC、计划任务或旧安装，再重新部署。\n" +
                 string.Join("\n", conflicts.Distinct(StringComparer.OrdinalIgnoreCase)));
         }
 
